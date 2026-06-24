@@ -79,6 +79,7 @@ GIST_DATA_FILE = "donchian_data.json"
 EMPTY_STORAGE: dict[str, list] = {
     "watchlist": [],
     "positions": [],
+    "buy_signals": [],
     "history": [],
     "blocked": [],
 }
@@ -108,14 +109,32 @@ div[data-testid="stHorizontalBlock"] { gap: 10px; }
 # GitHub Gist persistence
 # ─────────────────────────────────────────────────────────────────────────────
 def _get_secret(key: str, default: str = "") -> str:
-    """Read config from Streamlit secrets or session overrides."""
-    override = st.session_state.get(f"cfg_{key.lower()}")
-    if override:
-        return override
+    """Read config from Streamlit secrets or explicit session overrides."""
+    override_key = f"cfg_{key.lower()}"
+    if override_key in st.session_state:
+        override = st.session_state[override_key]
+        if override is not None and str(override).strip():
+            return str(override).strip()
+
     try:
-        return st.secrets.get(key, default)
-    except (FileNotFoundError, KeyError):
-        return default
+        if key in st.secrets:
+            return str(st.secrets[key]).strip()
+        if key == "GITHUB_TOKEN" and "GH_TOKEN" in st.secrets:
+            return str(st.secrets["GH_TOKEN"]).strip()
+    except (FileNotFoundError, KeyError, AttributeError):
+        pass
+    return default
+
+
+def _gist_auth_help(status_code: int) -> str:
+    if status_code != 401:
+        return ""
+    return (
+        " GitHub returned 401 Unauthorized. Use a **classic** Personal Access Token "
+        "(not fine-grained) with the **gist** scope, created on the same account "
+        "that owns the gist. Set `GIST_ID` and `GITHUB_TOKEN` in Streamlit Cloud "
+        "secrets (no quotes, no extra spaces)."
+    )
 
 
 class GistStorage:
@@ -129,12 +148,50 @@ class GistStorage:
 
     def _headers(self) -> dict[str, str]:
         return {
-            "Authorization": f"token {self.github_token}",
-            "Accept": "application/vnd.github.v3+json",
+            "Authorization": f"Bearer {self.github_token}",
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+            "User-Agent": "Donchian-Strategy-Streamlit-App",
         }
+
+    def test_connection(self) -> tuple[bool, str]:
+        """Verify token and gist access before load/save."""
+        if not self.enabled:
+            return False, "Set GIST_ID and GITHUB_TOKEN in Streamlit secrets."
+
+        try:
+            user_resp = requests.get(
+                "https://api.github.com/user",
+                headers=self._headers(),
+                timeout=20,
+            )
+            if user_resp.status_code == 401:
+                return False, "Token rejected by GitHub." + _gist_auth_help(401)
+
+            user_resp.raise_for_status()
+            login = user_resp.json().get("login", "unknown")
+
+            gist_resp = requests.get(self.api_url, headers=self._headers(), timeout=20)
+            if gist_resp.status_code == 404:
+                return False, f"Gist `{self.gist_id}` not found. Check GIST_ID."
+            if gist_resp.status_code == 401:
+                return (
+                    False,
+                    f"Token for `{login}` cannot access gist `{self.gist_id}`."
+                    + _gist_auth_help(401),
+                )
+            gist_resp.raise_for_status()
+            return True, f"Connected as `{login}`"
+        except requests.RequestException as exc:
+            return False, f"GitHub API error: {exc}"
 
     def load(self) -> dict[str, list]:
         if not self.enabled:
+            return dict(EMPTY_STORAGE)
+
+        ok, message = self.test_connection()
+        if not ok:
+            st.error(message)
             return dict(EMPTY_STORAGE)
 
         try:
@@ -148,12 +205,21 @@ class GistStorage:
                     data = json.loads(raw.text)
                     return _normalize_storage(data)
             return dict(EMPTY_STORAGE)
+        except requests.HTTPError as exc:
+            status = exc.response.status_code if exc.response is not None else 0
+            st.error(f"Could not load Gist data: {exc}.{_gist_auth_help(status)}")
+            return dict(EMPTY_STORAGE)
         except Exception as exc:
-            st.warning(f"Could not load Gist data: {exc}. Using empty state.")
+            st.error(f"Could not load Gist data: {exc}")
             return dict(EMPTY_STORAGE)
 
     def save(self, data: dict[str, list]) -> bool:
         if not self.enabled:
+            return False
+
+        ok, message = self.test_connection()
+        if not ok:
+            st.error(message)
             return False
 
         try:
@@ -175,8 +241,12 @@ class GistStorage:
             )
             response.raise_for_status()
             return True
+        except requests.HTTPError as exc:
+            status = exc.response.status_code if exc.response is not None else 0
+            st.error(f"Could not save to Gist: {exc}.{_gist_auth_help(status)}")
+            return False
         except Exception as exc:
-            st.warning(f"Could not save to Gist: {exc}.")
+            st.error(f"Could not save to Gist: {exc}")
             return False
 
 
@@ -186,6 +256,8 @@ def _normalize_storage(data: dict[str, Any]) -> dict[str, list]:
     return {
         "watchlist": list(data.get("watchlist", [])),
         "positions": list(data.get("positions", [])),
+        "buy_signals": [],
+        "buy_signals": list(data.get("buy_signals", [])),
         "history": list(data.get("history", [])),
         "blocked": list(blocked),
     }
@@ -200,6 +272,7 @@ def load_storage() -> dict[str, list]:
             st.session_state.storage_data = {
                 "watchlist": list(st.session_state.get("watchlist", [])),
                 "positions": list(st.session_state.get("positions", [])),
+                "buy_signals": list(st.session_state.get("buy_signals", [])),
                 "history": list(st.session_state.get("history", [])),
                 "blocked": list(st.session_state.get("blocked", [])),
             }
@@ -334,6 +407,8 @@ def process_strategy(
     watchlist = list(storage.get("watchlist", []))
     positions = list(storage.get("positions", []))
     history = list(storage.get("history", []))
+    buy_signals = []  # today only
+    buy_signals: list[dict[str, Any]] = []
     blocked = set(storage.get("blocked", []))
 
     watchlist_symbols = {entry["symbol"] for entry in watchlist}
@@ -378,6 +453,8 @@ def process_strategy(
         if not wl_entry:
             continue
 
+        buy_signals.append({"symbol": symbol, "buy_date": row["Date"], "buy_price": row["Close"]})
+
         positions.append(
             {
                 "symbol": symbol,
@@ -386,6 +463,13 @@ def process_strategy(
                 "buy_price": row["Close"],
                 "current_cmp": row["Close"],
                 "days_held": 0,
+            }
+        )
+        buy_signals.append(
+            {
+                "symbol": symbol,
+                "buy_date": row["Date"],
+                "buy_price": row["Close"],
             }
         )
         position_symbols.add(symbol)
@@ -428,6 +512,7 @@ def process_strategy(
     return {
         "watchlist": watchlist,
         "positions": active_positions,
+        "buy_signals": buy_signals,
         "history": history,
         "blocked": sorted(blocked),
     }
@@ -509,17 +594,55 @@ with st.sidebar:
     st.caption(f"{len(NIFTY250_SYMBOLS)} symbols · yfinance · GitHub Gist")
 
     st.markdown("#### GitHub Gist")
-    st.caption("Set in `.streamlit/secrets.toml` or Streamlit Cloud secrets.")
-    gist_id_input = st.text_input("Gist ID (optional override)", value=_get_secret("GIST_ID"))
-    token_input = st.text_input(
-        "GitHub Token (optional override)",
-        value=_get_secret("GITHUB_TOKEN"),
-        type="password",
+    st.caption("Configure in Streamlit Cloud → Settings → Secrets.")
+
+    gist_storage = GistStorage()
+    if gist_storage.enabled:
+        connected, status_msg = gist_storage.test_connection()
+        if connected:
+            st.success(status_msg)
+        else:
+            st.error(status_msg)
+    else:
+        st.warning("Add `GIST_ID` and `GITHUB_TOKEN` to secrets.")
+
+    with st.expander("Credential override (local dev)"):
+        with st.form("gist_credentials"):
+            gist_id_input = st.text_input("Gist ID")
+            token_input = st.text_input("GitHub Token", type="password")
+            apply_creds = st.form_submit_button("Apply overrides")
+            clear_creds = st.form_submit_button("Clear overrides")
+
+        if apply_creds:
+            if gist_id_input.strip():
+                st.session_state["cfg_gist_id"] = gist_id_input.strip()
+            if token_input.strip():
+                st.session_state["cfg_github_token"] = token_input.strip()
+            st.session_state.pop("storage_data", None)
+            st.rerun()
+
+        if clear_creds:
+            st.session_state.pop("cfg_gist_id", None)
+            st.session_state.pop("cfg_github_token", None)
+            st.session_state.pop("storage_data", None)
+            st.rerun()
+
+    st.markdown(
+        """
+**Token setup**
+1. GitHub → Settings → Developer settings → **Tokens (classic)**
+2. Generate token with **`gist`** scope only
+3. Create a gist at [gist.github.com](https://gist.github.com)
+4. Paste Gist ID + token into secrets:
+
+```
+GIST_ID = 71e6096d03b9bbb9c586d45d067be413
+GITHUB_TOKEN = ghp_xxxxxxxxxxxx
+```
+
+Fine-grained tokens do **not** work with the Gist API.
+"""
     )
-    if gist_id_input:
-        st.session_state["cfg_gist_id"] = gist_id_input
-    if token_input:
-        st.session_state["cfg_github_token"] = token_input
 
     st.markdown("---")
     st.markdown("#### Market Data")
@@ -600,14 +723,15 @@ if json.dumps(updated, sort_keys=True, default=str) != json.dumps(
 else:
     st.session_state.storage_data = updated
 
-c1, c2, c3, c4 = st.columns(4)
+c1, c2, c3, c4, c5 = st.columns(5)
 c1.metric("Watchlist", len(updated["watchlist"]))
-c2.metric("Positions", len(updated["positions"]))
-c3.metric("History", len(updated["history"]))
-c4.metric("Below Lower", int((signals["Status"] == "below_lower").sum()))
+c2.metric("Buy Today", len(updated.get("buy_signals", [])))
+c3.metric("Positions", len(updated["positions"]))
+c4.metric("History", len(updated["history"]))
+c5.metric("Below Lower", int((signals["Status"] == "below_lower").sum()))
 
-tab_wl, tab_pos, tab_hist, tab_sig = st.tabs(
-    ["Watchlist", "Positions", "History", "Signals"]
+tab_wl, tab_buy, tab_pos, tab_hist, tab_sig = st.tabs(
+    ["Watchlist", "Buy Today", "Positions", "History", "Signals"]
 )
 
 with tab_wl:
@@ -618,6 +742,42 @@ with tab_wl:
         st.info("Watchlist is empty.")
     else:
         st.dataframe(wl_df, use_container_width=True, hide_index=True)
+
+with tab_buy:
+    st.subheader("Today's Buy Signals")
+    buy_df = pd.DataFrame(updated.get("buy_signals", []))
+    if buy_df.empty:
+        st.info("No buy signals today.")
+    else:
+        buy_df = buy_df.rename(columns={"symbol":"Symbol","buy_date":"Buy Date","buy_price":"Buy Price"})
+        buy_df["Buy Price"]=buy_df["Buy Price"].map(_format_currency)
+        st.dataframe(buy_df,use_container_width=True,hide_index=True)
+
+
+with tab_buy:
+    st.subheader("Today's Buy Signals")
+    today = updated.get("buy_signals", [])
+    if not today:
+        st.info("No new buy signals today.")
+    else:
+        df = pd.DataFrame(today).rename(columns={"symbol":"Symbol","buy_date":"Buy Date","buy_price":"Buy Price"})
+        if "Buy Price" in df.columns:
+            df["Buy Price"]=df["Buy Price"].map(_format_currency)
+        # Enrich today's buy signals with current CMP and breakout %
+        pos_map={p["symbol"]:p for p in updated.get("positions",[])}
+        rows=[]
+        for r in today:
+            p=pos_map.get(r["symbol"],{})
+            cmp=p.get("current_cmp", r["buy_price"])
+            breakout=((cmp-r["buy_price"])/r["buy_price"]*100) if r["buy_price"] else 0
+            rows.append({
+                "Symbol": r["symbol"],
+                "Buy Date": r["buy_date"],
+                "Buy Price": _format_currency(r["buy_price"]),
+                "CMP": _format_currency(cmp),
+                "% Above Buy": f"{breakout:.2f}%"
+            })
+        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
 with tab_pos:
     st.subheader("Active Positions")
