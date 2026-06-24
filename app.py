@@ -755,31 +755,7 @@ with tab_buy:
 
 
 with tab_buy:
-    st.subheader("Today's Buy Signals")
-    today = updated.get("buy_signals", [])
-    if not today:
-        st.info("No new buy signals today.")
-    else:
-        df = pd.DataFrame(today).rename(columns={"symbol":"Symbol","buy_date":"Buy Date","buy_price":"Buy Price"})
-        if "Buy Price" in df.columns:
-            df["Buy Price"]=df["Buy Price"].map(_format_currency)
-        # Enrich today's buy signals with current CMP and breakout %
-        pos_map={p["symbol"]:p for p in updated.get("positions",[])}
-        rows=[]
-        for r in today:
-            p=pos_map.get(r["symbol"],{})
-            cmp=p.get("current_cmp", r["buy_price"])
-            breakout=((cmp-r["buy_price"])/r["buy_price"]*100) if r["buy_price"] else 0
-            rows.append({
-                "Symbol": r["symbol"],
-                "Buy Date": r["buy_date"],
-                "Buy Price": _format_currency(r["buy_price"]),
-                "CMP": _format_currency(cmp),
-                "% Above Buy": f"{breakout:.2f}%"
-            })
-        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
-
-with tab_pos:
+    with tab_pos:
     st.subheader("Active Positions")
     st.caption("Unlimited positions · exit at 6.28% above buy price")
     pos_df = positions_table(updated["positions"])
