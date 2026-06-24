@@ -337,7 +337,7 @@ with st.sidebar:
     
     # Parquet data source
     st.markdown("#### 📁 Data Source")
-    data_source = st.radio("Load data from:", ["Upload Parquet", "URL"])
+    data_source = st.radio("Load data from:", ["URL", "Upload Parquet"], index=0)
     
     if data_source == "Upload Parquet":
         uploaded_file = st.file_uploader("Upload parquet file", type=["parquet"])
