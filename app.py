@@ -156,12 +156,16 @@ def compute_previous_day_donchian(df, period=20):
     Returns DataFrame with one row per symbol for the most recent trading day.
     """
     results = []
+    total_symbols = len(df["Symbol"].unique())
+    insufficient_data = 0
+    price_filtered = 0
     
     for symbol in df["Symbol"].unique():
         sym_df = df[df["Symbol"] == symbol].copy()
         sym_df = sym_df.sort_values("Date")
         
         if len(sym_df) < period + 1:
+            insufficient_data += 1
             continue
         
         # Get the most recent day (yesterday's data)
@@ -173,6 +177,7 @@ def compute_previous_day_donchian(df, period=20):
         prev_data = sym_df.iloc[:-1]
         
         if len(prev_data) < period:
+            insufficient_data += 1
             continue
         
         # Compute DC20 from previous 20 days
@@ -181,6 +186,7 @@ def compute_previous_day_donchian(df, period=20):
         
         # Price filter
         if not (PRICE_FILTER_MIN <= latest_close <= PRICE_FILTER_MAX):
+            price_filtered += 1
             continue
         
         # Determine status based on previous day's close vs DC20
@@ -201,6 +207,9 @@ def compute_previous_day_donchian(df, period=20):
             "GapToUpper": round(float((dc_upper - latest_close) / latest_close * 100), 2),
             "GapToLower": round(float((latest_close - dc_lower) / latest_close * 100), 2),
         })
+    
+    # Log filtering stats
+    st.info(f"📊 Filter stats: {total_symbols} total | {insufficient_data} insufficient data | {price_filtered} price filtered | {len(results)} passed")
     
     return pd.DataFrame(results)
 
@@ -328,9 +337,15 @@ with st.sidebar:
     
     # Parquet data source
     st.markdown("#### 📁 Data Source")
-    parquet_url = st.text_input("Parquet URL", value=DEFAULT_PARQUET_URL,
-                                help="GitHub raw URL or any public URL to parquet file")
-    uploaded_file = None
+    data_source = st.radio("Load data from:", ["Upload Parquet", "URL"])
+    
+    if data_source == "Upload Parquet":
+        uploaded_file = st.file_uploader("Upload parquet file", type=["parquet"])
+        parquet_url = None
+    else:
+        parquet_url = st.text_input("Parquet URL", value=DEFAULT_PARQUET_URL,
+                                    help="GitHub raw URL or any public URL to parquet file")
+        uploaded_file = None
     
     st.markdown("---")
     
