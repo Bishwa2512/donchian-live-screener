@@ -256,7 +256,6 @@ def _normalize_storage(data: dict[str, Any]) -> dict[str, list]:
     return {
         "watchlist": list(data.get("watchlist", [])),
         "positions": list(data.get("positions", [])),
-        "buy_signals": [],
         "buy_signals": list(data.get("buy_signals", [])),
         "history": list(data.get("history", [])),
         "blocked": list(blocked),
@@ -272,7 +271,7 @@ def load_storage() -> dict[str, list]:
             st.session_state.storage_data = {
                 "watchlist": list(st.session_state.get("watchlist", [])),
                 "positions": list(st.session_state.get("positions", [])),
-                "buy_signals": list(st.session_state.get("buy_signals", [])),
+                "buy_signals": [],
                 "history": list(st.session_state.get("history", [])),
                 "blocked": list(st.session_state.get("blocked", [])),
             }
@@ -407,8 +406,7 @@ def process_strategy(
     watchlist = list(storage.get("watchlist", []))
     positions = list(storage.get("positions", []))
     history = list(storage.get("history", []))
-    buy_signals = []  # today only
-    buy_signals: list[dict[str, Any]] = []
+    buy_signals = []
     blocked = set(storage.get("blocked", []))
 
     watchlist_symbols = {entry["symbol"] for entry in watchlist}
@@ -463,13 +461,6 @@ def process_strategy(
                 "buy_price": row["Close"],
                 "current_cmp": row["Close"],
                 "days_held": 0,
-            }
-        )
-        buy_signals.append(
-            {
-                "symbol": symbol,
-                "buy_date": row["Date"],
-                "buy_price": row["Close"],
             }
         )
         position_symbols.add(symbol)
@@ -743,19 +734,22 @@ with tab_wl:
     else:
         st.dataframe(wl_df, use_container_width=True, hide_index=True)
 
+
 with tab_buy:
     st.subheader("Today's Buy Signals")
-    buy_df = pd.DataFrame(updated.get("buy_signals", []))
-    if buy_df.empty:
+    buys = updated.get("buy_signals", [])
+    if not buys:
         st.info("No buy signals today.")
     else:
-        buy_df = buy_df.rename(columns={"symbol":"Symbol","buy_date":"Buy Date","buy_price":"Buy Price"})
-        buy_df["Buy Price"]=buy_df["Buy Price"].map(_format_currency)
-        st.dataframe(buy_df,use_container_width=True,hide_index=True)
+        df = pd.DataFrame(buys).rename(columns={
+            "symbol":"Symbol",
+            "buy_date":"Buy Date",
+            "buy_price":"Buy Price"
+        })
+        df["Buy Price"] = df["Buy Price"].map(_format_currency)
+        st.dataframe(df, use_container_width=True, hide_index=True)
 
-
-with tab_buy:
-    with tab_pos:
+with tab_pos:
     st.subheader("Active Positions")
     st.caption("Unlimited positions · exit at 6.28% above buy price")
     pos_df = positions_table(updated["positions"])
