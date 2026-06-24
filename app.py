@@ -26,6 +26,9 @@ DONCHIAN_PERIOD = 20
 EXIT_MULTIPLIER = 1.0628
 PRICE_FILTER_MIN = 0
 PRICE_FILTER_MAX = 5000
+GIST_ID = "71e6096d03b9bbb9c586d45d067be413"
+GITHUB_TOKEN = "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"
+DEFAULT_PARQUET_URL = "https://github.com/Bishwa2512/donchian-live-screener/raw/a7b2071e111b3476f74f7f4f010961c87aa50f0f/nifty250_5y_ohlcv%20(1).parquet"
 
 st.set_page_config(page_title="Donchian Strategy", page_icon="📡", layout="wide")
 
@@ -53,8 +56,8 @@ class GistStorage:
     """Store app data in GitHub Gist for cloud persistence."""
     
     def __init__(self):
-        self.gist_id = st.secrets.get("GIST_ID", "")
-        self.github_token = st.secrets.get("GITHUB_TOKEN", "")
+        self.gist_id = GIST_ID
+        self.github_token = GITHUB_TOKEN
         self.api_url = f"https://api.github.com/gists/{self.gist_id}"
     
     def _get_headers(self):
@@ -321,30 +324,13 @@ with st.sidebar:
     st.markdown("*Previous day signals from parquet*")
     st.markdown("---")
     
-    # GitHub Gist credentials
-    st.markdown("#### 🔑 GitHub Gist Setup")
-    gist_id = st.text_input("Gist ID", value=st.secrets.get("GIST_ID", ""), 
-                           help="Create a Gist at gist.github.com and paste the ID from URL")
-    github_token = st.text_input("GitHub Token", value=st.secrets.get("GITHUB_TOKEN", ""), type="password",
-                                help="Generate a Personal Access Token with 'gist' scope")
-    
-    if gist_id and github_token:
-        st.secrets["GIST_ID"] = gist_id
-        st.secrets["GITHUB_TOKEN"] = github_token
-    
     st.markdown("---")
     
     # Parquet data source
     st.markdown("#### 📁 Data Source")
-    data_source = st.radio("Load data from:", ["Upload Parquet", "URL"])
-    
-    if data_source == "Upload Parquet":
-        uploaded_file = st.file_uploader("Upload parquet file", type=["parquet"])
-        parquet_url = None
-    else:
-        parquet_url = st.text_input("Parquet URL", 
-                                    placeholder="https://example.com/data.parquet")
-        uploaded_file = None
+    parquet_url = st.text_input("Parquet URL", value=DEFAULT_PARQUET_URL,
+                                help="GitHub raw URL or any public URL to parquet file")
+    uploaded_file = None
     
     st.markdown("---")
     
