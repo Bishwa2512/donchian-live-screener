@@ -28,7 +28,7 @@ PRICE_FILTER_MIN = 0
 PRICE_FILTER_MAX = 5000
 GIST_ID = "71e6096d03b9bbb9c586d45d067be413"
 GITHUB_TOKEN = "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"
-DEFAULT_PARQUET_URL = "https://github.com/Bishwa2512/donchian-live-screener/raw/a7b2071e111b3476f74f7f4f010961c87aa50f0f/nifty250_5y_ohlcv%20(1).parquet"
+DEFAULT_PARQUET_URL = "nifty250_1year_ohlcv.parquet"
 
 st.set_page_config(page_title="Donchian Strategy", page_icon="📡", layout="wide")
 
@@ -130,8 +130,13 @@ def load_parquet_data(uploaded_file=None, url=None):
         if uploaded_file is not None:
             df = pd.read_parquet(uploaded_file)
         elif url:
-            response = requests.get(url)
-            df = pd.read_parquet(BytesIO(response.content))
+            # Check if URL is a local file path
+            if url.startswith("http://") or url.startswith("https://"):
+                response = requests.get(url)
+                df = pd.read_parquet(BytesIO(response.content))
+            else:
+                # Treat as local file path
+                df = pd.read_parquet(url)
         else:
             return None
         
