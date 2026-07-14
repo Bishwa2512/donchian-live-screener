@@ -794,3 +794,25 @@ st.caption(
     "Universe: Nifty 250 symbol list. Prices from yfinance. "
     "State persists in GitHub Gist when GIST_ID and GITHUB_TOKEN are set."
 )
+
+# ============================================================
+# GOOGLE SHEET FINAL LIST
+# ============================================================
+
+with tab_final:
+
+    st.subheader("Google Sheet Final List")
+
+    CSV_URL = "https://docs.google.com/spreadsheets/d/1wopIdWgQMfBIJ9DnKcGDVmdDM2JiV06HgZLEkNUZaKk/export?format=csv&gid=1924424194"
+
+    try:
+        sheet = pd.read_csv(CSV_URL)
+
+        st.dataframe(
+            sheet,
+            use_container_width=True,
+            hide_index=True
+        )
+
+    except Exception as e:
+        st.error(e)
