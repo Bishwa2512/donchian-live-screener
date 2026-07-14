@@ -796,23 +796,23 @@ st.caption(
 )
 
 # ============================================================
-# GOOGLE SHEET FINAL LIST
+# GOOGLE SHEET FINAL LIST (SEPARATE SECTION)
 # ============================================================
 
-with tab_final:
+st.markdown("---")
+st.header("📋 Google Sheet Final List")
 
-    st.subheader("Google Sheet Final List")
+CSV_URL = "https://docs.google.com/spreadsheets/d/1wopIdWgQMfBIJ9DnKcGDVmdDM2JiV06HgZLEkNUZaKk/export?format=csv&gid=1924424194"
 
-    CSV_URL = "https://docs.google.com/spreadsheets/d/1wopIdWgQMfBIJ9DnKcGDVmdDM2JiV06HgZLEkNUZaKk/export?format=csv&gid=1924424194"
+try:
+    sheet = pd.read_csv(CSV_URL)
 
-    try:
-        sheet = pd.read_csv(CSV_URL)
+    st.dataframe(
+        sheet,
+        use_container_width=True,
+        hide_index=True,
+        height=600
+    )
 
-        st.dataframe(
-            sheet,
-            use_container_width=True,
-            hide_index=True
-        )
-
-    except Exception as e:
-        st.error(e)
+except Exception as e:
+    st.error(f"Google Sheet Error: {e}")
