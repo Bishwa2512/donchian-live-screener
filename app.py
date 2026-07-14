@@ -1,3 +1,6 @@
+from streamlit_autorefresh import st_autorefresh
+st_autorefresh(interval=60000, key="sheet_refresh")
+
 """
 Donchian Channel Strategy App
 =============================
