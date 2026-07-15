@@ -819,6 +819,7 @@ try:
 
     now = datetime.now().strftime("%d-%b-%Y %H:%M")
 
+    changed = False
     rows = []
 
     for _, row in sheet.iterrows():
@@ -834,15 +835,17 @@ try:
                 "rating": rating,
                 "changed_on": now
             }
+            changed = True
 
         # update only when rating changes
         elif status_store[symbol]["rating"] != rating:
 
             status_store[symbol]["rating"] = rating
             status_store[symbol]["changed_on"] = now
+            changed = True
 
         # Show only actionable stocks
-        if rating == "Buy/Average Out":
+        if rating.strip().lower() == "buy/average out":
 
             rows.append({
                 "Symbol": symbol,
@@ -851,8 +854,9 @@ try:
                     status_store[symbol]["changed_on"]
             })
 
-    storage["sheet_status"] = status_store
-    persist_storage(storage)
+    if changed:
+        storage["sheet_status"] = status_store
+        persist_storage(storage)
 
     if rows:
 
