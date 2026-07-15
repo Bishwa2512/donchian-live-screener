@@ -797,57 +797,76 @@ st.caption(
 )
 
 # ============================================================
-# GOOGLE SHEET FINAL LIST
+# GOOGLE SHEET - BUY/AVERAGE OUT
 # ============================================================
 
 st.markdown("---")
-st.header("📋 Google Sheet Final List")
+st.header("📈 CAR Buy/Average Out")
 
 CSV_URL = "https://docs.google.com/spreadsheets/d/1wopIdWgQMfBIJ9DnKcGDVmdDM2JiV06HgZLEkNUZaKk/export?format=csv&gid=1924424194"
 
 try:
 
-    sheet = pd.read_csv(CSV_URL)
+    # Header starts on second row
+    sheet = pd.read_csv(CSV_URL, header=1)
 
     storage = load_storage()
 
-    status_store = storage.get("sheet_status", {})
+    if "sheet_status" not in storage:
+        storage["sheet_status"] = {}
+
+    status_store = storage["sheet_status"]
 
     now = datetime.now().strftime("%d-%b-%Y %H:%M")
 
-    for i, row in sheet.iterrows():
+    rows = []
 
-        symbol = str(row["Symbol"]).strip()
+    for _, row in sheet.iterrows():
 
-        status = str(row["Status"]).strip().upper()
+        symbol = str(row["NSE Code"]).replace("NSE:", "").strip()
 
+        rating = str(row["Cumulative Average Rule (CAR) Rating"]).strip()
+
+        # create if first time
         if symbol not in status_store:
 
             status_store[symbol] = {
-                "status": status,
+                "rating": rating,
                 "changed_on": now
             }
 
-        elif status_store[symbol]["status"] != status:
+        # update only when rating changes
+        elif status_store[symbol]["rating"] != rating:
 
-            status_store[symbol]["status"] = status
+            status_store[symbol]["rating"] = rating
             status_store[symbol]["changed_on"] = now
 
-    sheet["Status Changed On"] = sheet["Symbol"].apply(
-        lambda x: status_store.get(str(x), {}).get("changed_on", "")
-    )
+        # Show only actionable stocks
+        if rating == "Buy/Average Out":
+
+            rows.append({
+                "Symbol": symbol,
+                "CAR Rating": rating,
+                "Status Changed On":
+                    status_store[symbol]["changed_on"]
+            })
 
     storage["sheet_status"] = status_store
-
     persist_storage(storage)
 
-    st.dataframe(
-        sheet,
-        use_container_width=True,
-        hide_index=True,
-        height=650
-    )
+    if rows:
+
+        display = pd.DataFrame(rows)
+
+        st.dataframe(
+            display,
+            use_container_width=True,
+            hide_index=True,
+            height=500
+        )
+
+    else:
+        st.info("No Buy/Average Out stocks today.")
 
 except Exception as e:
-
     st.error(e)
