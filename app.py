@@ -20,8 +20,6 @@ import pandas as pd
 import requests
 import streamlit as st
 import yfinance as yf
-from streamlit_autorefresh import st_autorefresh
-st_autorefresh(interval=60000, key="sheet_refresh")
 
 warnings.filterwarnings("ignore")
 
