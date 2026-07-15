@@ -76,12 +76,13 @@ PRICE_FILTER_MIN = 0
 PRICE_FILTER_MAX = 5000
 GIST_DATA_FILE = "donchian_data.json"
 
-EMPTY_STORAGE: dict[str, list] = {
+EMPTY_STORAGE = {
     "watchlist": [],
     "positions": [],
     "buy_signals": [],
     "history": [],
     "blocked": [],
+    "sheet_status": {}
 }
 
 st.set_page_config(page_title="Donchian Strategy", page_icon="📡", layout="wide")
@@ -251,7 +252,6 @@ class GistStorage:
 
 
 def _normalize_storage(data: dict[str, Any]) -> dict[str, list]:
-    """Support legacy key name `ineligible` as `blocked`."""
     blocked = data.get("blocked", data.get("ineligible", []))
     return {
         "watchlist": list(data.get("watchlist", [])),
@@ -259,6 +259,7 @@ def _normalize_storage(data: dict[str, Any]) -> dict[str, list]:
         "buy_signals": list(data.get("buy_signals", [])),
         "history": list(data.get("history", [])),
         "blocked": list(blocked),
+        "sheet_status": dict(data.get("sheet_status", {})),
     }
 
 
@@ -796,7 +797,7 @@ st.caption(
 )
 
 # ============================================================
-# GOOGLE SHEET FINAL LIST (SEPARATE SECTION)
+# GOOGLE SHEET FINAL LIST
 # ============================================================
 
 st.markdown("---")
@@ -805,14 +806,48 @@ st.header("📋 Google Sheet Final List")
 CSV_URL = "https://docs.google.com/spreadsheets/d/1wopIdWgQMfBIJ9DnKcGDVmdDM2JiV06HgZLEkNUZaKk/export?format=csv&gid=1924424194"
 
 try:
+
     sheet = pd.read_csv(CSV_URL)
+
+    storage = load_storage()
+
+    status_store = storage.get("sheet_status", {})
+
+    now = datetime.now().strftime("%d-%b-%Y %H:%M")
+
+    for i, row in sheet.iterrows():
+
+        symbol = str(row["Symbol"]).strip()
+
+        status = str(row["Status"]).strip().upper()
+
+        if symbol not in status_store:
+
+            status_store[symbol] = {
+                "status": status,
+                "changed_on": now
+            }
+
+        elif status_store[symbol]["status"] != status:
+
+            status_store[symbol]["status"] = status
+            status_store[symbol]["changed_on"] = now
+
+    sheet["Status Changed On"] = sheet["Symbol"].apply(
+        lambda x: status_store.get(str(x), {}).get("changed_on", "")
+    )
+
+    storage["sheet_status"] = status_store
+
+    persist_storage(storage)
 
     st.dataframe(
         sheet,
         use_container_width=True,
         hide_index=True,
-        height=600
+        height=650
     )
 
 except Exception as e:
-    st.error(f"Google Sheet Error: {e}")
+
+    st.error(e)
