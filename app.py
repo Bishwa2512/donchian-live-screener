@@ -810,12 +810,16 @@ try:
     # Header starts on second row
     sheet = pd.read_csv(CSV_URL, header=1)
 
-    storage = load_storage()
+    # Reuse the already-loaded storage from session if available so timestamps persist
+    storage = st.session_state.get("storage_data")
+    if not storage:
+        storage = load_storage()
 
-    if "sheet_status" not in storage:
-        storage["sheet_status"] = {}
-
+    storage.setdefault("sheet_status", {})
     status_store = storage["sheet_status"]
+
+    # Debug (remove later if desired)
+    # st.caption(f"Loaded CAR records: {len(status_store)}")
 
     now = datetime.now().strftime("%d-%b-%Y %H:%M")
 
