@@ -806,73 +806,50 @@ st.header("📈 CAR Buy/Average Out")
 CSV_URL = "https://docs.google.com/spreadsheets/d/1wopIdWgQMfBIJ9DnKcGDVmdDM2JiV06HgZLEkNUZaKk/export?format=csv&gid=1924424194"
 
 try:
-
-    # Header starts on second row
     sheet = pd.read_csv(CSV_URL, header=1)
 
-    # Reuse the already-loaded storage from session if available so timestamps persist
-    storage = st.session_state.get("storage_data")
-    if not storage:
-        storage = load_storage()
+    storage = st.session_state.get("storage_data", load_storage())
+    car_watchlist = storage.setdefault("car_watchlist", [])
 
-    storage.setdefault("sheet_status", {})
-    status_store = storage["sheet_status"]
-
-    # Debug (remove later if desired)
-    # st.caption(f"Loaded CAR records: {len(status_store)}")
-
+    active = {x["symbol"]: x for x in car_watchlist}
+    current_buy = set()
     now = datetime.now().strftime("%d-%b-%Y %H:%M")
-
     changed = False
-    rows = []
 
     for _, row in sheet.iterrows():
-
         symbol = str(row["NSE Code"]).replace("NSE:", "").strip()
-
         rating = str(row["Cumulative Average Rule (CAR) Rating"]).strip()
 
-        # create if first time
-        if symbol not in status_store:
+        if rating.lower() == "buy/average out":
+            current_buy.add(symbol)
+            if symbol not in active:
+                active[symbol] = {
+                    "symbol": symbol,
+                    "buy_date": now
+                }
+                changed = True
 
-            status_store[symbol] = {
-                "rating": rating,
-                "changed_on": now
-            }
+    # Remove stocks no longer Buy/Average Out
+    new_list = []
+    for sym, rec in active.items():
+        if sym in current_buy:
+            new_list.append(rec)
+        else:
             changed = True
 
-        # update only when rating changes
-        elif status_store[symbol]["rating"] != rating:
-
-            status_store[symbol]["rating"] = rating
-            status_store[symbol]["changed_on"] = now
-            changed = True
-
-        # Show only actionable stocks
-        if rating.strip().lower() == "buy/average out":
-
-            rows.append({
-                "Symbol": symbol,
-                "CAR Rating": rating,
-                "Status Changed On":
-                    status_store[symbol]["changed_on"]
-            })
+    storage["car_watchlist"] = sorted(new_list, key=lambda x: x["buy_date"], reverse=True)
 
     if changed:
-        storage["sheet_status"] = status_store
         persist_storage(storage)
 
-    if rows:
-
-        display = pd.DataFrame(rows)
-
-        st.dataframe(
-            display,
-            use_container_width=True,
-            hide_index=True,
-            height=500
-        )
-
+    if storage["car_watchlist"]:
+        display = pd.DataFrame(storage["car_watchlist"]).rename(columns={
+            "symbol":"Symbol",
+            "buy_date":"Status Changed On"
+        })
+        display["CAR Rating"] = "Buy/Average Out"
+        display = display[["Symbol","CAR Rating","Status Changed On"]]
+        st.dataframe(display, use_container_width=True, hide_index=True, height=500)
     else:
         st.info("No Buy/Average Out stocks today.")
 
