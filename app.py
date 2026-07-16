@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import warnings
+import time
 from datetime import datetime
 from typing import Any
 
@@ -156,39 +157,28 @@ class GistStorage:
         }
 
     def test_connection(self) -> tuple[bool, str]:
-        """Verify token and gist access before load/save."""
+        """Verify gist access only (avoid /user endpoint)."""
         if not self.enabled:
             return False, "Set GIST_ID and GITHUB_TOKEN in Streamlit secrets."
 
-        try:
-            user_resp = requests.get(
-                "https://api.github.com/user",
-                headers=self._headers(),
-                timeout=20,
-            )
-            if user_resp.status_code == 401:
-                return False, "Token rejected by GitHub." + _gist_auth_help(401)
+        for attempt in range(3):
+            try:
+                gist_resp = requests.get(self.api_url, headers=self._headers(), timeout=30)
+                if gist_resp.status_code == 401:
+                    return False, "Invalid GitHub token." + _gist_auth_help(401)
+                if gist_resp.status_code == 404:
+                    return False, f"Gist `{self.gist_id}` not found."
+                gist_resp.raise_for_status()
+                return True, "Connected"
+            except requests.RequestException as exc:
+                if attempt < 2:
+                    time.sleep(2)
+                    continue
+                return False, f"GitHub API error: {exc}"
 
-            user_resp.raise_for_status()
-            login = user_resp.json().get("login", "unknown")
-
-            gist_resp = requests.get(self.api_url, headers=self._headers(), timeout=20)
-            if gist_resp.status_code == 404:
-                return False, f"Gist `{self.gist_id}` not found. Check GIST_ID."
-            if gist_resp.status_code == 401:
-                return (
-                    False,
-                    f"Token for `{login}` cannot access gist `{self.gist_id}`."
-                    + _gist_auth_help(401),
-                )
-            gist_resp.raise_for_status()
-            return True, f"Connected as `{login}`"
-        except requests.RequestException as exc:
-            return False, f"GitHub API error: {exc}"
-
-    def load(self) -> dict[str, list]:
+    def load(self)def load(self) -> dict[str, list]:
         if not self.enabled:
-            return dict(EMPTY_STORAGE)
+            return st.session_state.get("storage_data", dict(EMPTY_STORAGE))
 
         ok, message = self.test_connection()
         if not ok:
