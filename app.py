@@ -157,7 +157,7 @@ class GistStorage:
         }
 
     def test_connection(self) -> tuple[bool, str]:
-        """Verify gist access only (avoid /user endpoint)."""
+        """Verify gist access only."""
         if not self.enabled:
             return False, "Set GIST_ID and GITHUB_TOKEN in Streamlit secrets."
 
@@ -176,9 +176,9 @@ class GistStorage:
                     continue
                 return False, f"GitHub API error: {exc}"
 
-    def load(self)def load(self) -> dict[str, list]:
+    def load(self) -> dict[str, list]:
         if not self.enabled:
-            return st.session_state.get("storage_data", dict(EMPTY_STORAGE))
+            return dict(EMPTY_STORAGE)
 
         ok, message = self.test_connection()
         if not ok:
