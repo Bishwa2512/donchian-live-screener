@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import json
 import warnings
-import time
 from datetime import datetime
 from typing import Any
 
@@ -83,7 +82,8 @@ EMPTY_STORAGE = {
     "buy_signals": [],
     "history": [],
     "blocked": [],
-    "sheet_status": {}
+    "sheet_status": {},
+    "car_watchlist": []
 }
 
 st.set_page_config(page_title="Donchian Strategy", page_icon="📡", layout="wide")
@@ -157,24 +157,35 @@ class GistStorage:
         }
 
     def test_connection(self) -> tuple[bool, str]:
-        """Verify gist access only."""
+        """Verify token and gist access before load/save."""
         if not self.enabled:
             return False, "Set GIST_ID and GITHUB_TOKEN in Streamlit secrets."
 
-        for attempt in range(3):
-            try:
-                gist_resp = requests.get(self.api_url, headers=self._headers(), timeout=30)
-                if gist_resp.status_code == 401:
-                    return False, "Invalid GitHub token." + _gist_auth_help(401)
-                if gist_resp.status_code == 404:
-                    return False, f"Gist `{self.gist_id}` not found."
-                gist_resp.raise_for_status()
-                return True, "Connected"
-            except requests.RequestException as exc:
-                if attempt < 2:
-                    time.sleep(2)
-                    continue
-                return False, f"GitHub API error: {exc}"
+        try:
+            user_resp = requests.get(
+                "https://api.github.com/user",
+                headers=self._headers(),
+                timeout=20,
+            )
+            if user_resp.status_code == 401:
+                return False, "Token rejected by GitHub." + _gist_auth_help(401)
+
+            user_resp.raise_for_status()
+            login = user_resp.json().get("login", "unknown")
+
+            gist_resp = requests.get(self.api_url, headers=self._headers(), timeout=20)
+            if gist_resp.status_code == 404:
+                return False, f"Gist `{self.gist_id}` not found. Check GIST_ID."
+            if gist_resp.status_code == 401:
+                return (
+                    False,
+                    f"Token for `{login}` cannot access gist `{self.gist_id}`."
+                    + _gist_auth_help(401),
+                )
+            gist_resp.raise_for_status()
+            return True, f"Connected as `{login}`"
+        except requests.RequestException as exc:
+            return False, f"GitHub API error: {exc}"
 
     def load(self) -> dict[str, list]:
         if not self.enabled:
@@ -250,6 +261,7 @@ def _normalize_storage(data: dict[str, Any]) -> dict[str, list]:
         "history": list(data.get("history", [])),
         "blocked": list(blocked),
         "sheet_status": dict(data.get("sheet_status", {})),
+        "car_watchlist": list(data.get("car_watchlist", [])),
     }
 
 
@@ -786,81 +798,45 @@ st.caption(
     "State persists in GitHub Gist when GIST_ID and GITHUB_TOKEN are set."
 )
 
+
 # ============================================================
-# GOOGLE SHEET - BUY/AVERAGE OUT
+# GOOGLE SHEET - BUY/AVERAGE OUT (LOCAL TABLE)
 # ============================================================
 
 st.markdown("---")
 st.header("📈 CAR Buy/Average Out")
 
-CSV_URL = "https://docs.google.com/spreadsheets/d/1wopIdWgQMfBIJ9DnKcGDVmdDM2JiV06HgZLEkNUZaKk/export?format=csv&gid=1924424194"
+CSV_URL="https://docs.google.com/spreadsheets/d/1wopIdWgQMfBIJ9DnKcGDVmdDM2JiV06HgZLEkNUZaKk/export?format=csv&gid=1924424194"
 
 try:
+    sheet=pd.read_csv(CSV_URL,header=1)
+    storage=load_storage()
+    car_watchlist=storage.get("car_watchlist",[])
+    current={str(r["NSE Code"]).replace("NSE:","").strip()
+             for _,r in sheet.iterrows()
+             if str(r["Cumulative Average Rule (CAR) Rating"]).strip().lower()=="buy/average out"}
 
-    # Header starts on second row
-    sheet = pd.read_csv(CSV_URL, header=1)
+    existing={x["symbol"]:x for x in car_watchlist}
 
-    storage = load_storage()
+    from datetime import datetime
+    now=datetime.now().strftime("%d-%b-%Y %H:%M")
 
-    if "sheet_status" not in storage:
-        storage["sheet_status"] = {}
+    for sym in sorted(current):
+        if sym not in existing:
+            existing[sym]={"symbol":sym,"buy_date":now}
 
-    status_store = storage["sheet_status"]
+    existing={k:v for k,v in existing.items() if k in current}
 
-    now = datetime.now().strftime("%d-%b-%Y %H:%M")
-
-    changed = False
-    rows = []
-
-    for _, row in sheet.iterrows():
-
-        symbol = str(row["NSE Code"]).replace("NSE:", "").strip()
-
-        rating = str(row["Cumulative Average Rule (CAR) Rating"]).strip()
-
-        # create if first time
-        if symbol not in status_store:
-
-            status_store[symbol] = {
-                "rating": rating,
-                "changed_on": now
-            }
-            changed = True
-
-        # update only when rating changes
-        elif status_store[symbol]["rating"] != rating:
-
-            status_store[symbol]["rating"] = rating
-            status_store[symbol]["changed_on"] = now
-            changed = True
-
-        # Show only actionable stocks
-        if rating.strip().lower() == "buy/average out":
-
-            rows.append({
-                "Symbol": symbol,
-                "CAR Rating": rating,
-                "Status Changed On":
-                    status_store[symbol]["changed_on"]
-            })
-
-    if changed:
-        storage["sheet_status"] = status_store
+    new_list=sorted(existing.values(),key=lambda x:x["symbol"])
+    if new_list!=car_watchlist:
+        storage["car_watchlist"]=new_list
         persist_storage(storage)
 
-    if rows:
-
-        display = pd.DataFrame(rows)
-
-        st.dataframe(
-            display,
-            use_container_width=True,
-            hide_index=True,
-            height=500
-        )
-
+    if new_list:
+        df=pd.DataFrame(new_list).rename(columns={"symbol":"Symbol","buy_date":"Status Changed On"})
+        df.insert(1,"CAR Rating","Buy/Average Out")
+        st.dataframe(df,use_container_width=True,hide_index=True,height=500)
     else:
         st.info("No Buy/Average Out stocks today.")
-
 except Exception as e:
     st.error(e)
