@@ -189,12 +189,12 @@ class GistStorage:
 
     def load(self) -> dict[str, list]:
         if not self.enabled:
-            return dict(EMPTY_STORAGE)
+            return _normalize_storage(st.session_state.get('storage_data', EMPTY_STORAGE.copy()))
 
         ok, message = self.test_connection()
         if not ok:
             st.error(message)
-            return dict(EMPTY_STORAGE)
+            return _normalize_storage(st.session_state.get('storage_data', EMPTY_STORAGE.copy()))
 
         try:
             response = requests.get(self.api_url, headers=self._headers(), timeout=30)
@@ -206,14 +206,14 @@ class GistStorage:
                     raw.raise_for_status()
                     data = json.loads(raw.text)
                     return _normalize_storage(data)
-            return dict(EMPTY_STORAGE)
+            return _normalize_storage(st.session_state.get('storage_data', EMPTY_STORAGE.copy()))
         except requests.HTTPError as exc:
             status = exc.response.status_code if exc.response is not None else 0
             st.error(f"Could not load Gist data: {exc}.{_gist_auth_help(status)}")
-            return dict(EMPTY_STORAGE)
+            return _normalize_storage(st.session_state.get('storage_data', EMPTY_STORAGE.copy()))
         except Exception as exc:
             st.error(f"Could not load Gist data: {exc}")
-            return dict(EMPTY_STORAGE)
+            return _normalize_storage(st.session_state.get('storage_data', EMPTY_STORAGE.copy()))
 
     def save(self, data: dict[str, list]) -> bool:
         if not self.enabled:
@@ -277,6 +277,8 @@ def load_storage() -> dict[str, list]:
                 "buy_signals": [],
                 "history": list(st.session_state.get("history", [])),
                 "blocked": list(st.session_state.get("blocked", [])),
+                "sheet_status": {},
+                "car_watchlist": [],
             }
     return _normalize_storage(st.session_state.storage_data)
 
